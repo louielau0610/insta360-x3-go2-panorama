@@ -49,10 +49,22 @@ Desktop measurements on sample 003 at `1280x640` panorama plus six `512x512` fac
 
 On RK3588S, treat this as a starting point rather than a guarantee: keep cubemap faces in memory, pin the real-time process to Cortex-A76 cores, cache all maps, and validate on the actual GO2. DNG decoding is photo-only and must not be in the live stream path. Use `seam_update_interval=5` if the target needs more CPU headroom, after checking moving-object seam lag on the robot.
 
+## Offline regression
+
+Install the optional photo decoder and validate the known samples after changing geometry, seam logic, or projection code:
+
+```bash
+pip install rawpy
+python tools/validate_x5_samples.py /path/to/dngs /path/to/output
+```
+
+The command checks the panorama and all six face shapes, repeated-frame seam drift, first-to-stable output change, and an approximately 5 Hz minimum throughput. DNG decode time is excluded. The generated `validation_report.json` and JPEG samples are research artifacts and must stay outside the repository.
+
 ## Repository layout
 
 - `x5_360_pipeline/`: supported unified API.
 - `dual_fisheye_stitcher.py`: X5 factory-calibrated LUT stitcher.
+- `tools/validate_x5_samples.py`: optional offline DNG quality/performance regression command.
 - `docs/`: implementation details, parameter assumptions, and robot-use constraints.
 
 ## Limitations

@@ -38,3 +38,7 @@ At the GO2-oriented `1280x640` panorama and six `512x512` faces, the fitted-geom
 With the stage-two dynamic seam enabled, the same output contract averaged 32.92 ms (30.38 FPS, p95 59.06 ms). Stitch-only processing averaged 22.12 ms (45.21 FPS). The refresh frame creates the p95 spike; cached frames reuse the previous seam. These are desktop CPU measurements, not RK3588S measurements.
 
 With the fitted geometry at `1920x960`, the desktop stitch-only core averaged 45.19 ms (22.13 FPS, p95 54.60 ms). Radial and rotation corrections are absorbed into startup LUT generation and do not add a new per-frame optimization stage.
+
+## Verification workflow
+
+`tools/validate_x5_samples.py` is the offline regression entry point for known X5 DNG captures. It excludes photo decoding from timing, exercises the supported panorama-plus-cubemap API repeatedly, verifies the fixed output shapes, and fails when repeated-frame seam drift exceeds 1 px, first-to-stable MAE exceeds 0.1, or throughput falls below the configurable acceptance floor (4.5 FPS by default, representing approximately 5 Hz). Validator outputs belong in an external test directory, not the source tree.
