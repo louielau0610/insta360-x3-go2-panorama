@@ -4,9 +4,9 @@ The project must emit a standard 2:1 equirectangular panorama before calling `py
 
 Each lens needs independent intrinsic parameters (centre, effective focal length and, when needed, radial distortion) plus a relative rotation into one spherical coordinate frame. These parameters belong in offline LUT generation; per-frame code must only remap and blend.
 
-The X5 preset uses its embedded 10752x5376 `p2` record for each lens circle centre and radius, then scales them to the actual local frame. It also uses the two small orientation values as pitch/yaw corrections. The final approximately-90-degree value is not applied as roll: the controlled 003 comparison showed that interpretation rotates the panorama by about 90 degrees. It remains available in the returned factory metadata until its vendor coordinate convention is decoded.
+The X5 preset uses its embedded 10752x5376 `p2` record for each lens circle centre and radius, then scales them to the actual local frame. Full camera-to-panorama rotation matrices and radial curves are fitted against paired DNG and firmware-exported JPG captures. Per-capture stabilization is solved as a nuisance rotation so it cannot be absorbed into shared lens geometry.
 
-The radial model remains deliberately simple: radius divided by half-FOV defines an equidistant focal length. Future calibration should fit the radial curve and relative translation against a multi-distance target capture, rather than changing the factory constants to hide parallax.
+The fitted radial model is `rho/radius = a1*theta + a3*theta^3 + a5*theta^5`. It is evaluated only while the normalized radius stays in `[0, 1]`. The profile is a static far-scene alignment, not a substitute for relative translation, scene depth, or a multi-distance target calibration.
 
 Exposure gain is measured only where both projected lenses are valid. The gains are limited to `[0.8, 1.25]`; if there are too few valid pixels, the image is left unchanged. This prevents a dark border or a nearby object in one lens from globally brightening or darkening a robot perception frame.
 

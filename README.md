@@ -38,13 +38,13 @@ If the camera source already supplies separate frames, call `pipeline.process(le
 
 ## X5 factory profile
 
-The calibrated stitcher scales the X5 `p2` factory lens circles from a `10752x5376` source canvas. It applies independent circle centres/radii and the tested pitch/yaw micro-corrections. Its lookup tables are built once at startup; frame processing performs only remapping, blending, and optional cubemap projection.
+The calibrated stitcher scales the X5 `p2` factory lens circles from a `10752x5376` source canvas. It combines the independent circle centres/radii with full per-lens rotation matrices and fifth-order radial curves fitted against firmware-exported 003–005 image pairs. Its lookup tables are built once at startup; frame processing performs only remapping, blending, and optional cubemap projection.
 
 ## Performance envelope
 
 Desktop measurements on sample 003 at `1280x640` panorama plus six `512x512` faces:
 
-- in-memory panorama plus cubemap: `30.38 ms` / `32.92 FPS`;
+- fitted-geometry in-memory panorama plus cubemap: `26.87 ms` / `37.22 FPS`;
 - with six JPEG encodes: `43.79 ms` / `22.83 FPS`.
 
 On RK3588S, treat this as a starting point rather than a guarantee: keep cubemap faces in memory, pin the real-time process to Cortex-A76 cores, cache all maps, and validate on the actual GO2. DNG decoding is photo-only and must not be in the live stream path.
@@ -57,4 +57,4 @@ On RK3588S, treat this as a starting point rather than a guarantee: keep cubemap
 
 ## Limitations
 
-The current lens model is equidistant and cannot remove near-field parallax. The approximately-90-degree orientation number in X5 factory metadata is retained but not applied as a roll, because that interpretation rotates the panorama incorrectly in this coordinate convention. Final deployment should still validate radial distortion, relative pose, and camera-to-robot extrinsics with calibration targets.
+The fitted static geometry aligns distant overlap content but cannot remove near-field parallax. Because the profile is supervised by three indoor firmware exports rather than a calibration target, final deployment should validate it with held-out outdoor scenes and then calibrate camera-to-robot extrinsics. Dynamic seam selection or local optical flow remains a later step for nearby objects.
