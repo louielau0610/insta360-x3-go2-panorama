@@ -38,16 +38,16 @@ If the camera source already supplies separate frames, call `pipeline.process(le
 
 ## X5 factory profile
 
-The calibrated stitcher scales the X5 `p2` factory lens circles from a `10752x5376` source canvas. It combines the independent circle centres/radii with full per-lens rotation matrices and fifth-order radial curves fitted against firmware-exported 003–005 image pairs. Its lookup tables are built once at startup; frame processing performs only remapping, blending, and optional cubemap projection.
+The calibrated stitcher scales the X5 `p2` factory lens circles from a `10752x5376` source canvas. It combines the independent circle centres/radii with full per-lens rotation matrices and fifth-order radial curves fitted against firmware-exported 003–005 image pairs. Its lookup tables are built once at startup. The X5 preset then uses a low-resolution, temporally smoothed minimum-cost seam to select one lens in the overlap instead of averaging duplicated objects. The seam is refreshed every three frames by default and reused between updates.
 
 ## Performance envelope
 
-Desktop measurements on sample 003 at `1280x640` panorama plus six `512x512` faces:
+Desktop measurements on sample 003 at `1280x640` panorama plus six `512x512` faces, using the default dynamic seam and in-memory BGR frames:
 
-- fitted-geometry in-memory panorama plus cubemap: `26.87 ms` / `37.22 FPS`;
-- with six JPEG encodes: `43.79 ms` / `22.83 FPS`.
+- stitch only: `22.12 ms` / `45.21 FPS` average;
+- panorama plus cubemap: `32.92 ms` / `30.38 FPS` average, `59.06 ms` p95.
 
-On RK3588S, treat this as a starting point rather than a guarantee: keep cubemap faces in memory, pin the real-time process to Cortex-A76 cores, cache all maps, and validate on the actual GO2. DNG decoding is photo-only and must not be in the live stream path.
+On RK3588S, treat this as a starting point rather than a guarantee: keep cubemap faces in memory, pin the real-time process to Cortex-A76 cores, cache all maps, and validate on the actual GO2. DNG decoding is photo-only and must not be in the live stream path. Use `seam_update_interval=5` if the target needs more CPU headroom, after checking moving-object seam lag on the robot.
 
 ## Repository layout
 
@@ -57,4 +57,4 @@ On RK3588S, treat this as a starting point rather than a guarantee: keep cubemap
 
 ## Limitations
 
-The fitted static geometry aligns distant overlap content but cannot remove near-field parallax. Because the profile is supervised by three indoor firmware exports rather than a calibration target, final deployment should validate it with held-out outdoor scenes and then calibrate camera-to-robot extrinsics. Dynamic seam selection or local optical flow remains a later step for nearby objects.
+The fitted static geometry aligns distant overlap content but cannot remove near-field parallax. The dynamic seam prevents overlap averaging and suppresses a near-black lens obstruction when the other lens has reliable content, but it does not synthesize a depth-correct view. Because the profile is supervised by three indoor firmware exports rather than a calibration target, final deployment should validate it with held-out outdoor scenes and then calibrate camera-to-robot extrinsics. Local optical flow remains an optional later step only if held-out moving scenes justify its cost and distortion risk.

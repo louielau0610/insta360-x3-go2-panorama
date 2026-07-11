@@ -29,6 +29,8 @@ class X5CubemapPipeline:
         panorama_width=1280,
         cube_face_width=512,
         balance_exposure=False,
+        blend_mode="dynamic_seam",
+        seam_update_interval=3,
     ):
         if panorama_width % 2:
             raise ValueError("panorama_width must be even for a 2:1 panorama")
@@ -43,6 +45,8 @@ class X5CubemapPipeline:
             output_width=panorama_width,
             output_height=self.panorama_height,
             balance_exposure=balance_exposure,
+            blend_mode=blend_mode,
+            seam_update_interval=seam_update_interval,
         )
         self.cube_sampler = EquirecSampler.from_cubemap(
             cube_face_width,
