@@ -2,6 +2,12 @@
 
 This project is a calibration-aware Insta360 X5 stitching and cubemap pipeline for mobile-robot perception.
 
+It now also provides a field acquisition boundary. `go2_experiment` records camera frames with host wall/monotonic timestamps and subscribes to GO2 state through Unitree SDK2. The native X5 CameraSDK recorder preserves the primary encoded dual-fisheye stream, any optional secondary stream, and camera timestamps when a decoded V4L2/RTSP source is unavailable. It permits a bounded 15-second discovery window for the X5 Android-mode USB re-enumeration. Neither path publishes robot commands.
+
+Stationary and controlled-motion runs use separate saved configurations and labels. Motion is always performed by an onsite operator with the official remote; the software only records state and camera data.
+
+`x5_ros` is the ROS2 Foxy adapter. One node owns CameraSDK, decodes and splits the X5 preview, writes synchronized lossless BMP pairs directly to disk, publishes JPEG `/fisheye1/image_compressed` and `/fisheye2/image_compressed` messages, and stores those messages in rosbag2 without a second DDS transfer. Offline tools replay/decode timestamp-paired images and generate panorama, six-face cubemap, and 300° left/front/right products.
+
 `x5_360_pipeline` is the supported runtime entry point. It composes the X5 calibration-aware stitcher with py360convert's cubemap sampler, returning both a 2:1 panorama and the complete six-face `F/R/B/L/U/D` cubemap from a single BGR side-by-side frame.
 
 The calibrated path accepts two square fisheye frames, applies per-lens polynomial lookup tables with full rotations, and blends their spherical overlap. The test capture is an Insta360 X5 DNG decoded into two 2944x2944 circular fisheyes with native left/right ordering.
@@ -27,7 +33,22 @@ The second stage replaces overlap averaging in the X5 preset with two content-aw
 
 For all-direction perception, the pipeline emits a cubemap rather than only three perspective views: `X5 dual fisheye -> 2:1 panorama -> F/R/B/L/U/D cubemap -> robot perception`.
 
+Field data flow is `X5 raw/encoded stream + host timestamps + GO2 LowState/SportModeState -> one immutable run directory -> SHA-256 manifest`. Raw camera data remains available even if online stitching cannot meet its target frequency.
+
+The ROS dual-storage flow is `X5 H.264 -> one CameraSDK owner -> BGR decode -> synchronized lossless BMP pairs + JPEG CompressedImage messages -> direct rosbag2 SQLite + ROS topics -> offline multi-view processing`. Raw decoded pixels stay outside rosbag for post-processing, while compressed topics reduce DDS and bag load.
+
+The supported on-robot deployment root is `~/ws_datacollection` on the GO2-mounted Jetson. `scripts/install_jetson.sh` creates an isolated Python 3.8 environment while retaining JetPack's system OpenCV; it does not replace CUDA, JetPack, ROS 2, or robot services.
+The Jetson environment pins the final Python 3.8-compatible NumPy/SciPy/Pillow releases and applies postponed annotation evaluation to py360convert 1.0.4, whose package metadata otherwise excludes Python 3.8.
+
 Runtime must use precomputed maps. Calibration and map generation are offline operations. Quality is assessed against the X5 firmware-exported JPEG and through forward-perspective samples relevant to robot navigation.
+
+## Field safety and integrity
+
+- Acquisition is read-only: the code creates Unitree subscribers and no command publisher.
+- `scripts/preflight.sh` must pass before a run, including reception of at least one GO2 state message.
+- Every formal run has an unedited config, frame/chunk timestamps, completion status, counts, and `SHA256SUMS`.
+- A failed manifest, empty X5 stream, timestamp gaps, or operator emergency stop makes the run invalid; raw files are retained for diagnosis.
+- Network interface, X5 source layout and output storage are explicit configuration, never inferred during a formal run.
 
 ## Baseline verification
 
@@ -41,4 +62,10 @@ With the fitted geometry at `1920x960`, the desktop stitch-only core averaged 45
 
 ## Verification workflow
 
-`tools/validate_x5_samples.py` is the offline regression entry point for known X5 DNG captures. It excludes photo decoding from timing, exercises the supported panorama-plus-cubemap API repeatedly, verifies the fixed output shapes, and fails when repeated-frame seam drift exceeds 1 px, first-to-stable MAE exceeds 0.1, or throughput falls below the configurable acceptance floor (4.5 FPS by default, representing approximately 5 Hz). Validator outputs belong in an external test directory, not the source tree.
+`tools/validate_x5_samples.py` is the offline regression entry point for known X5 DNG captures. It excludes photo decoding from timing, exercises the supported panorama-plus-cubemap API repeatedly, verifies the fixed output shapes, and fails when repeated-frame seam drift exceeds 1 px, first-to-stable MAE exceeds 0.1, or throughput falls below the configurable acceptance floor (4.5 FPS by default). Field configuration raises the processed output requirement to 6 Hz. Validator outputs belong in an external test directory, not the source tree.
+
+Run `python -m unittest discover -s tests -v` for acquisition contract tests, then `go2-collect preflight --config <config>` on the actual hardware.
+
+On the GO2-mounted Jetson, run `bash scripts/install_jetson.sh` and complete the synthetic smoke test before enabling GO2 telemetry or attaching the X5. Bind DDS to the internal robot interface, not the external Wi-Fi interface.
+
+The verified 2026-07-17 on-robot environment, commands, measurements, artifacts, and remaining live-X5 blocker are recorded in `docs/jetson_deployment_report.md`.

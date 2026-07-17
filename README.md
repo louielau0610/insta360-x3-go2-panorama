@@ -1,111 +1,182 @@
-# Insta360 X5 360° Pipeline
+# Insta360 X5 × Unitree GO2 360° Data Pipeline
 
-> A calibration-aware dual-fisheye stitching pipeline that produces a 2:1 panorama and a full six-face cubemap from an Insta360 X5 frame.
+> Lossless dual-fisheye disk capture, compressed ROS2 recording, recoverable GO2 field data, and calibration-aware 360° post-processing for Insta360 X5.
 
-This project provides a compact runtime path for future all-direction robot perception on Unitree GO2-class platforms. It combines an X5-specific calibrated stitcher, content-aware seam selection, and cubemap rendering behind one Python API. The package works entirely on in-memory BGR frames; JPEG encoding is optional and stays outside the real-time path.
+This project turns an Insta360 X5 mounted on a Unitree GO2 into a repeatable data-collection pipeline. It records synchronized lens images and robot telemetry, preserves raw data for offline processing, and produces a `2:1` panorama, six-face cubemap, and a combined 300° left/front/right view.
+
+Robot integration is deliberately read-only: the software subscribes to Unitree state but never publishes motion commands.
 
 ## Highlights
 
-- **Calibrated X5 stitcher** — precomputes per-lens polynomial lookup tables, circle geometry, and rotations at startup.
-- **Two useful outputs** — returns a standard equirectangular panorama and a complete `F/R/B/L/U/D` cubemap in a single call.
-- **Content-aware seams** — selects the lower-cost source through the overlap instead of averaging duplicated or obstructed content.
-- **Runtime-oriented design** — caches maps and seams, keeps cubemap faces in memory, and separates offline DNG validation from live-frame processing.
-- **Repeatable validation** — exercises known X5 samples, output shapes, seam stability, and a configurable throughput floor.
+- **Synchronized ROS2 images** — publishes JPEG `/fisheye1/image_compressed` and `/fisheye2/image_compressed` messages with identical timestamps.
+- **Post-processing first** — writes both `1920 × 1920` decoded `bgr8` lens images directly to disk as lossless BMP files before bagging.
+- **Compact rosbag2 capture** — stores paired `sensor_msgs/CompressedImage` CDR messages directly in a Foxy-compatible SQLite bag.
+- **GO2 field recorder** — records X5 streams, timestamps, gyro/exposure samples, Unitree state, run metadata, and SHA-256 manifests.
+- **Complete 360° outputs** — returns a panorama and `F/R/B/L/U/D` cubemap, plus left/front/right inspection views.
+- **X5-aware stitching** — uses factory-derived lens geometry, polynomial lookup tables, full rotations, and a temporally smoothed content-aware seam.
 
-## Pipeline
+## Verified on the robot
+
+The original live X5/GO2 path was verified at `10.10 Hz` with equal left/right counts and timestamps. After switching to raw-disk/compressed-bag storage, an on-robot replay test sustained `9.78 Hz`: 19 lossless BMP pairs occupied 420.3 MB and the JPEG-quality-85 bag occupied 13.6 MiB over 1.94 seconds. Bag playback exported 19/19 pairs with zero unmatched timestamps. A new live-camera check remains pending because the X5 was not USB-enumerated during the final test attempt.
+
+Direct-disk raw decoded images require approximately `13.3 GB/minute` at 10 Hz. The JPEG rosbag is much smaller and depends on quality and scene complexity; `JPEG_QUALITY=85` is the default.
+
+![300-degree left/front/right evaluation](docs/artifacts/motion_pilot_20260717_125935/evaluation_300/view_300_contact.jpg)
+
+## Data flow
 
 ```text
-X5 side-by-side BGR frame
-          │
-          ▼
-calibrated dual-fisheye LUT stitch
-          │
-          ├── 2:1 equirectangular panorama
-          │
-          └── py360convert ──> F / R / B / L / U / D cubemap faces
+Insta360 X5 live H.264 preview
+              │
+              ▼
+       CameraSDK owner
+              │
+              ▼
+     GStreamer BGR decode
+              │
+              ├── lossless BMP pairs + pairs.csv
+              │
+              └── JPEG encode
+                       ├── /fisheye1/image_compressed ─┐
+                       └── /fisheye2/image_compressed ─┴── rosbag2 SQLite
+                                                                │
+                                                                ▼
+                                                     decoded paired PNG export
+                                                │
+                   ┌────────────────────────────┼──────────────────────┐
+                   ▼                            ▼                      ▼
+             2:1 panorama             F/R/B/L/U/D cubemap     300° inspection view
 ```
 
-The cubemap provides complete `360° × 180°` coverage; it complements the panorama and does not infer metric depth.
+The direct-disk BMP files contain the decoded pixels without another lossy encoding step. ROS messages and rosbag use JPEG to reduce transport and bag size. Neither output is sensor-native DNG because the camera preview arrives as H.264.
 
-## Install
+## Quick start: raw disk plus compressed ROS2 bag
+
+The supported deployment directory on the GO2-mounted computer is `~/ws_datacollection`.
+
+```bash
+cd ~/ws_datacollection
+
+# Record raw BMP pairs plus a compressed bag for 10 seconds at 10 Hz.
+bash scripts/record_rosbag_raw.sh 10 10
+
+# Override JPEG quality when required (1-100, default 85).
+JPEG_QUALITY=80 bash scripts/record_rosbag_raw.sh 10 10
+
+# Inspect and decode the compressed bag for ROS-side review.
+ros2 bag info runs/<run>/bag
+bash scripts/export_rosbag_raw.sh runs/<run>/bag runs/<run>_export
+
+# Generate canonical products directly from lossless BMP originals.
+source .venv-jetson/bin/activate
+x5-ros-postprocess runs/<run>/raw runs/<run>_postprocess
+```
+
+Every completed capture validates exact timestamp equality between raw files and both compressed topics, equal counts, at least 80% of the target frame rate, readable rosbag metadata, and SHA-256 checksums. See the [dual-storage guide](docs/rosbag_raw_pipeline.md) for storage planning, output layout, and failure rules.
+
+## Field acquisition with GO2 telemetry
+
+Prepare the deployment package on Windows when the CameraSDK archives are local:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/package_deployment.ps1
+```
+
+Install and test on the GO2-mounted Ubuntu computer:
+
+```bash
+cd ~/ws_datacollection
+bash scripts/install_jetson.sh
+source .venv-jetson/bin/activate
+python -m unittest discover -s tests -v
+
+bash scripts/build_x5_sdk_recorder.sh
+bash scripts/preflight.sh config/jetson_go2_x5_sdk.json
+bash scripts/record_x5_sdk_go2.sh config/jetson_go2_x5_sdk.json 60
+```
+
+Set `go2.interface` to the interface connected to the robot controller, normally `eth0`. Do not replace the JetPack OpenCV/CUDA stack or the robot's native CycloneDDS installation. The [field guide](docs/go2_field_guide.md) contains the operator checklist and stop criteria.
+
+## Python API
+
+Install the desktop pipeline:
 
 ```bash
 pip install -e .
 ```
 
-The package installs `numpy`, `opencv-python`, and `py360convert`.
-
-## Quick start
+Process a side-by-side BGR frame:
 
 ```python
 from x5_360_pipeline import X5CubemapPipeline
 
-# X5 raw layout: two 2944 × 2944 fisheyes side by side.
 pipeline = X5CubemapPipeline(2944, 2944)
-
 result = pipeline.process_side_by_side(side_by_side_bgr)
+
 panorama_bgr = result.panorama
 front_bgr = result.faces["F"]
 back_bgr = result.faces["B"]
 ```
 
-For camera sources that provide separate images, call `pipeline.process(left_bgr, right_bgr)` instead. All inputs and outputs use BGR channel order.
+For separate images, call `pipeline.process(left_bgr, right_bgr)`. All inputs and outputs use BGR channel order.
 
 ## Output contract
 
-With the default configuration, one side-by-side BGR input frame yields:
-
 | Output | Default shape | Intended use |
 | --- | --- | --- |
-| Panorama | `1280 × 640` BGR | Recording, visualization, and panorama-based processing |
-| Cubemap | Six `512 × 512` BGR faces | All-direction robot-perception consumers |
-| JPEG payloads | Optional | Transmission or logging only |
+| Panorama | `1280 × 640` BGR | Recording, visualization, panorama processing |
+| Cubemap | Six `512 × 512` BGR faces | Complete all-direction perception |
+| Direct-disk lens images | Two `1920 × 1920` BGR BMP files | Lossless post-processing input after preview decode |
+| ROS lens topics | Two JPEG `CompressedImage` messages | Lower-bandwidth transport and rosbag replay |
+| JPEG payloads | Optional | Transmission or report artifacts only |
 
-Cubemap face order is always `F/R/B/L/U/D`.
+Cubemap face order is always `F/R/B/L/U/D`. Neither the panorama nor cubemap infers metric depth.
 
-## X5 calibration and seam model
+## Calibration and performance
 
-The X5 preset scales the `p2` factory lens circles from a `10752 × 5376` source canvas, then combines independent lens centres and radii with full per-lens rotation matrices and fifth-order radial curves. The geometry was fitted against firmware-exported image pairs 003–005. Lookup tables are built once at startup.
+The X5 preset scales the `p2` factory lens circles from a `10752 × 5376` source canvas and combines independent circle geometry with full per-lens rotations and fifth-order radial curves. In the overlap it chooses a low-cost source path instead of averaging duplicated or obstructed content. Maps are cached at startup, and the seam is temporally smoothed and reused between updates.
 
-In the spherical overlap, the preset evaluates a low-resolution minimum-cost path using local disagreement and dark-obstruction costs. The seam is temporally smoothed, updated every three frames by default, and reused between updates. This avoids overlap averaging and can suppress a near-black lens obstruction when the other lens contains reliable content.
-
-## Performance envelope
-
-Desktop measurements on sample 003 at a `1280 × 640` panorama plus six `512 × 512` faces, using the default dynamic seam and in-memory BGR frames:
+Desktop measurements for a `1280 × 640` panorama and six `512 × 512` faces:
 
 | Workload | Average | Throughput | p95 |
 | --- | ---: | ---: | ---: |
 | Stitch only | 22.12 ms | 45.21 FPS | — |
 | Panorama + cubemap | 32.92 ms | 30.38 FPS | 59.06 ms |
 
-These are desktop measurements, not RK3588S or GO2 performance guarantees. On the target platform, retain faces in memory, cache all maps, pin the real-time process to appropriate CPU cores, and validate with real robot inputs. If CPU headroom is limited, `seam_update_interval=5` is a possible starting point—but moving-object seam lag must be checked first.
+These figures are not a GO2/RK3588S guarantee. Validate the complete workload on the target platform.
 
-## Offline regression
-
-After changing geometry, seam logic, or projection code, validate known X5 samples with the optional photo decoder:
+## Validation
 
 ```bash
+# Acquisition and serialization contracts.
+python -m unittest discover -s tests -v
+
+# Optional DNG geometry/seam regression.
 pip install rawpy
 python tools/validate_x5_samples.py /path/to/dngs /path/to/output
 ```
 
-The validator checks panorama and cubemap shapes, repeated-frame seam drift, first-to-stable output change, and an approximately 5 Hz minimum throughput. DNG decode time is excluded. Keep generated JPEGs and `validation_report.json` outside the repository.
+Generated raw BMP pairs, bags, encoded camera streams, validation images, and runtime reports belong under ignored `runs/` or another external output directory. Only small, intentional documentation artifacts are kept in the repository.
 
 ## Repository layout
 
 | Path | Purpose |
 | --- | --- |
-| `x5_360_pipeline/` | Supported unified panorama-plus-cubemap API. |
-| `dual_fisheye_stitcher.py` | X5 calibration-aware LUT stitcher and seam implementation. |
-| `tools/validate_x5_samples.py` | Offline DNG quality and performance regression utility. |
-| `docs/` | Implementation details, parameter assumptions, and robot-use constraints. |
+| `x5_360_pipeline/` | Supported panorama-plus-cubemap API |
+| `x5_ros/` | ROS2 image publication, direct bag writing, export, and post-processing |
+| `go2_experiment/` | Read-only Unitree telemetry and recoverable field recording |
+| `native/` | X5 CameraSDK recorder and FIFO bridge |
+| `config/` | Dry-run, SDK, and robot acquisition profiles |
+| `scripts/` | Installation, preflight, capture, export, and packaging commands |
+| `tests/` | Acquisition and serialization regression tests |
+| `docs/` | Architecture, implementation, field reports, and operational constraints |
 
-## Scope and limitations
+## Safety and limitations
 
-- The fitted static geometry aligns distant overlap content but cannot eliminate near-field parallax.
-- Content-aware seam selection does not create a depth-correct view when a close object crosses the seam.
-- The calibration profile is supervised by three indoor firmware exports, not a multi-distance calibration target; validate it on held-out outdoor scenes before deployment.
-- Camera-to-robot extrinsics still require calibration for robot use.
-- Local optical flow remains a later option only if held-out moving scenes demonstrate that its additional cost and distortion risk are justified.
+- Acquisition code does not command the GO2. Physical motion remains under the onsite operator and official remote.
+- No ROS `CameraInfo` is published until trustworthy per-lens calibration exists; factory stitch parameters must not be presented as pinhole intrinsics.
+- Static geometry cannot eliminate near-field parallax, and seam selection cannot create a depth-correct view.
+- The live-preview path starts from camera-generated H.264. Use the appropriate native photo mode when sensor-level DNG data is required.
+- Camera-to-robot extrinsics still require a dedicated calibration before geometric robot-perception use.
 
-See the [project overview](docs/project_overview.md) and module documents in [`docs/modules/`](docs/modules/) for implementation details and design constraints.
+See the [project overview](docs/project_overview.md), [deployment report](docs/jetson_deployment_report.md), and [module documentation](docs/modules/) for implementation details and design constraints.

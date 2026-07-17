@@ -1,0 +1,33 @@
+{
+  "experiment": {
+    "label": "dry_run",
+    "operator": "test",
+    "scene": "synthetic",
+    "notes": "No hardware is used"
+  },
+  "camera": {
+    "source_type": "synthetic",
+    "source": "synthetic",
+    "layout": "dual_fisheye_sbs",
+    "expected_width": 640,
+    "expected_height": 320,
+    "fps_hint": 12,
+    "process": true,
+    "process_hz": 6,
+    "panorama_width": 640,
+    "cube_face_width": 128,
+    "seam_update_interval": 3
+  },
+  "go2": {
+    "enabled": false,
+    "interface": "none",
+    "ready_timeout_sec": 1,
+    "lowstate_hz": 50,
+    "sportstate_hz": 20
+  },
+  "recording": {
+    "output_root": "./runs",
+    "min_free_gb": 0.1,
+    "minimum_processed_hz": 6
+  }
+}

@@ -1,5 +1,12 @@
+.venv-go2/
+.vendor/
+bin/
+lib/
+runs/
+*.zip
 __pycache__/
 *.py[cod]
 build/
 *.egg-info/
 .package-check/
+.pytest_cache/

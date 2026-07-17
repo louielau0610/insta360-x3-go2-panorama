@@ -1,0 +1,33 @@
+{
+  "experiment": {
+    "label": "go2_x5_pilot",
+    "operator": "EDIT_ME",
+    "scene": "EDIT_ME",
+    "notes": "Read-only GO2 telemetry plus X5 dual-fisheye capture"
+  },
+  "camera": {
+    "source_type": "v4l2",
+    "source": "0",
+    "layout": "dual_fisheye_sbs",
+    "expected_width": 5888,
+    "expected_height": 2944,
+    "fps_hint": 30,
+    "process": true,
+    "process_hz": 6,
+    "panorama_width": 1280,
+    "cube_face_width": 512,
+    "seam_update_interval": 3
+  },
+  "go2": {
+    "enabled": true,
+    "interface": "enp2s0",
+    "ready_timeout_sec": 8,
+    "lowstate_hz": 50,
+    "sportstate_hz": 20
+  },
+  "recording": {
+    "output_root": "/data/go2_x5_runs",
+    "min_free_gb": 50,
+    "minimum_processed_hz": 6
+  }
+}

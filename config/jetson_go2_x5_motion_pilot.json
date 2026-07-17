@@ -1,0 +1,30 @@
+{
+  "experiment": {
+    "label": "jetson_go2_x5_motion_pilot",
+    "operator": "unitree",
+    "scene": "controlled_low_speed_motion",
+    "notes": "X5 CameraSDK plus read-only GO2 telemetry; all motion is commanded by the onsite operator with the official remote"
+  },
+  "camera": {
+    "source_type": "insta360_sdk",
+    "source": "usb",
+    "layout": "dual_fisheye_sbs",
+    "expected_width": 3840,
+    "expected_height": 1920,
+    "fps_hint": 30,
+    "in_camera_stitching": false,
+    "process": false
+  },
+  "go2": {
+    "enabled": true,
+    "interface": "eth0",
+    "ready_timeout_sec": 12,
+    "lowstate_hz": 50,
+    "sportstate_hz": 20
+  },
+  "recording": {
+    "output_root": "/home/unitree/ws_datacollection/runs",
+    "min_free_gb": 50,
+    "minimum_processed_hz": 0
+  }
+}
