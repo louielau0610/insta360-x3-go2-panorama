@@ -1,0 +1,4 @@
+numpy==1.24.4
+Pillow==10.4.0
+scipy==1.10.1
+cyclonedds==0.10.2

@@ -1,0 +1,82 @@
+{
+  "input": "runs/20260717_125935_jetson_go2_x5_motion_pilot/x5/motion_45s_frame.jpg",
+  "input_shape": [
+    1920,
+    3840,
+    3
+  ],
+  "coverage_definition": {
+    "left": {
+      "center_yaw_deg": -100,
+      "horizontal_fov_deg": 100
+    },
+    "front": {
+      "center_yaw_deg": 0,
+      "horizontal_fov_deg": 100
+    },
+    "right": {
+      "center_yaw_deg": 100,
+      "horizontal_fov_deg": 100
+    },
+    "continuous_horizontal_coverage_deg": [
+      -150,
+      150
+    ],
+    "rear_blind_sector_deg": 60,
+    "view_shape": [
+      512,
+      512,
+      3
+    ]
+  },
+  "timing_scope": "GO2 Jetson; one decoded 3840x1920 BGR input; steady-state means unless marked one-time",
+  "h264_sequential_decode": {
+    "mean_ms": 21.986456050010222,
+    "p95_ms": 41.342257149517536,
+    "fps_equivalent": 45.48254606042046
+  },
+  "jpeg_load_one_shot_ms": 72.83606399960263,
+  "pipeline_initialization_one_time_ms": 455.0773759992808,
+  "dual_fisheye_to_panorama_and_six_cube": {
+    "mean_ms": 62.76919720012302,
+    "p95_ms": 100.06885399934617,
+    "fps_equivalent": 15.931381069153456
+  },
+  "panorama_to_three_100deg_views": {
+    "mean_ms": 26.994678600067346,
+    "p95_ms": 33.12165644970275,
+    "fps_equivalent": 37.04433806437337
+  },
+  "decoded_bgr_to_all_compute_outputs": {
+    "mean_ms": 89.77329189997363,
+    "p95_ms": 129.91828534932222,
+    "fps_equivalent": 11.139170446308361
+  },
+  "jpeg_encode_and_write_11_images": {
+    "mean_ms": 37.313874600022245,
+    "p95_ms": 37.48617225023736,
+    "fps_equivalent": 26.799682711036496
+  },
+  "estimated_live_all_outputs_with_decode_mean_ms": 111.75974794998385,
+  "estimated_live_all_outputs_with_decode_and_write_mean_ms": 149.0736225500061,
+  "output_images": [
+    "cube_B.jpg",
+    "cube_D.jpg",
+    "cube_F.jpg",
+    "cube_L.jpg",
+    "cube_R.jpg",
+    "cube_U.jpg",
+    "panorama.jpg",
+    "view_300_contact.jpg",
+    "view_front_100.jpg",
+    "view_left_100.jpg",
+    "view_right_100.jpg"
+  ],
+  "direct_h264_to_panorama_six_cube_three_views_and_11_jpeg_files": {
+    "iterations": 15,
+    "mean_ms": 159.83472366679052,
+    "p95_ms": 238.1671174998699,
+    "fps_equivalent": 6.2564627826723855,
+    "pipeline_initialization_excluded": true
+  }
+}
