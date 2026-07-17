@@ -190,6 +190,14 @@ The three-second live run at `runs/20260717_140725_x5_rosbag_raw/` produced 29 m
 
 After automatic pair/rate validation was added, `runs/20260717_141039_x5_rosbag_raw/` produced 20/20 paired messages over 1.981 seconds at 10.10 Hz and passed the configured 80%-of-target floor. Its bag size was 422.4 MiB.
 
+## Raw-disk/compressed-bag revision
+
+The later storage revision moves canonical decoded pixels out of rosbag: each 10 Hz timestamp writes two uncompressed `1920x1920` BMP files and one flushed `raw/pairs.csv` row, while JPEG quality 85 `sensor_msgs/msg/CompressedImage` messages are published and written to rosbag2. The X5 H.264 source and camera metadata remain separate sidecars.
+
+An on-robot replay of the retained X5 H.264 sample produced 19 raw pairs over 1.942 seconds (`9.78 Hz`). The BMP files occupied 420,251,652 bytes and the compressed bag occupied 14,237,696 bytes. `ros2 bag info` reported 19 messages on each compressed topic with equal timestamp bounds. Slowed playback decoded and exported 19/19 pairs with zero unmatched stamps, and direct BMP post-processing completed panorama, cubemap, and 300° output for the tested pair.
+
+The subsequent live-camera attempt did not start because USB enumeration contained no Insta360 vendor `2e1a`; CameraSDK correctly timed out after 15 seconds. The empty 8 KB attempt and replay-test outputs were removed. A three-second live confirmation remains required after reconnecting the X5 in Android USB mode.
+
 ## Safety and provenance
 
 - The deployed telemetry code creates DDS subscribers only and does not publish robot motion commands.

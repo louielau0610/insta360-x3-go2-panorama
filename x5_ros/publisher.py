@@ -14,22 +14,20 @@ import cv2
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage
 
-from .bag_writer import RawImageBagWriter
-from .common import split_side_by_side
+from .bag_writer import CompressedImageBagWriter
+from .common import RawPairWriter, encode_jpeg, split_side_by_side
 
 
-def _image_message(image, stamp, frame_id):
-    message = Image()
+def _compressed_message(image, stamp, frame_id, jpeg_quality):
+    message = CompressedImage()
     message.header.stamp = stamp
     message.header.frame_id = frame_id
-    message.height, message.width = image.shape[:2]
-    message.encoding = "bgr8"
-    message.is_bigendian = False
-    message.step = message.width * 3
+    message.format = "jpeg"
+    encoded = encode_jpeg(image, jpeg_quality)
     payload = array.array("B")
-    payload.frombytes(image.data)
+    payload.frombytes(encoded.tobytes())
     message.data = payload
     return message
 
@@ -50,14 +48,21 @@ class DualFisheyePublisher(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE,
         )
-        self.fisheye1 = self.create_publisher(Image, "/fisheye1/image_raw", qos)
-        self.fisheye2 = self.create_publisher(Image, "/fisheye2/image_raw", qos)
+        self.fisheye1 = self.create_publisher(
+            CompressedImage, "/fisheye1/image_compressed", qos
+        )
+        self.fisheye2 = self.create_publisher(
+            CompressedImage, "/fisheye2/image_compressed", qos
+        )
 
-    def publish_pair(self, frame):
-        left, right = split_side_by_side(frame)
+    def publish_pair(self, left, right, jpeg_quality):
         stamp = self.get_clock().now().to_msg()
-        left_message = _image_message(left, stamp, "x5_fisheye1_optical_frame")
-        right_message = _image_message(right, stamp, "x5_fisheye2_optical_frame")
+        left_message = _compressed_message(
+            left, stamp, "x5_fisheye1_optical_frame", jpeg_quality
+        )
+        right_message = _compressed_message(
+            right, stamp, "x5_fisheye2_optical_frame", jpeg_quality
+        )
         self.fisheye1.publish(left_message)
         self.fisheye2.publish(right_message)
         timestamp_ns = stamp.sec * 1_000_000_000 + stamp.nanosec
@@ -91,7 +96,8 @@ def run(args):
 
     rclpy.init()
     node = DualFisheyePublisher()
-    bag = RawImageBagWriter(args.bag_output) if args.bag_output else None
+    bag = CompressedImageBagWriter(args.bag_output) if args.bag_output else None
+    raw = RawPairWriter(args.raw_output) if args.raw_output else None
     started = time.monotonic()
     next_publish = started
     source_fps = capture.get(cv2.CAP_PROP_FPS) or 30.0
@@ -117,7 +123,12 @@ def run(args):
             now = time.monotonic()
             if now < next_publish:
                 continue
-            stamp, left_message, right_message = node.publish_pair(frame)
+            left, right = split_side_by_side(frame)
+            stamp, left_message, right_message = node.publish_pair(
+                left, right, args.jpeg_quality
+            )
+            if raw is not None:
+                raw.write_pair(left, right, stamp)
             if bag is not None:
                 bag.write_pair(left_message, right_message, stamp)
             first_stamp = stamp if first_stamp is None else first_stamp
@@ -133,6 +144,8 @@ def run(args):
             recorder.wait(timeout=15)
         if bag is not None:
             bag.close()
+        if raw is not None:
+            raw.close()
         capture.release()
         node.destroy_node()
         rclpy.shutdown()
@@ -145,6 +158,8 @@ def run(args):
         "first_stamp_ns": first_stamp,
         "last_stamp_ns": last_stamp,
         "publish_fps_target": args.publish_fps,
+        "jpeg_quality": args.jpeg_quality,
+        "raw_pairs_written": 0 if raw is None else raw.pairs,
     }
     print(json.dumps(result, indent=2))
     if published == 0:
@@ -155,7 +170,7 @@ def run(args):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Publish synchronized X5 fisheye ROS2 images")
+    parser = argparse.ArgumentParser(description="Store raw X5 pairs and publish compressed ROS2 images")
     parser.add_argument("--input-h264", type=Path)
     parser.add_argument("--recorder", type=Path, default=Path("bin/x5-stream-recorder"))
     parser.add_argument("--capture-output", type=Path)
@@ -163,9 +178,13 @@ def main(argv=None):
     parser.add_argument("--publish-fps", type=float, default=10)
     parser.add_argument("--ready-file", type=Path)
     parser.add_argument("--bag-output", type=Path)
+    parser.add_argument("--raw-output", type=Path)
+    parser.add_argument("--jpeg-quality", type=int, default=85)
     args = parser.parse_args(argv)
     if args.publish_fps <= 0:
         parser.error("--publish-fps must be positive")
+    if not 1 <= args.jpeg_quality <= 100:
+        parser.error("--jpeg-quality must be between 1 and 100")
     return run(args)
 
 

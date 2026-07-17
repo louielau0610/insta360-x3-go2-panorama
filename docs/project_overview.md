@@ -6,7 +6,7 @@ It now also provides a field acquisition boundary. `go2_experiment` records came
 
 Stationary and controlled-motion runs use separate saved configurations and labels. Motion is always performed by an onsite operator with the official remote; the software only records state and camera data.
 
-`x5_ros` is the ROS2 Foxy adapter. One node owns CameraSDK, decodes and splits the X5 preview, publishes synchronized `/fisheye1/image_raw` and `/fisheye2/image_raw` `bgr8` messages, and writes those exact messages into rosbag2 without a second DDS transfer. Offline tools replay/export lossless timestamp-paired PNG files and generate panorama, six-face cubemap, and 300° left/front/right products. The bag contains original decoded pixels, not JPEG-compressed topics.
+`x5_ros` is the ROS2 Foxy adapter. One node owns CameraSDK, decodes and splits the X5 preview, writes synchronized lossless BMP pairs directly to disk, publishes JPEG `/fisheye1/image_compressed` and `/fisheye2/image_compressed` messages, and stores those messages in rosbag2 without a second DDS transfer. Offline tools replay/decode timestamp-paired images and generate panorama, six-face cubemap, and 300° left/front/right products.
 
 `x5_360_pipeline` is the supported runtime entry point. It composes the X5 calibration-aware stitcher with py360convert's cubemap sampler, returning both a 2:1 panorama and the complete six-face `F/R/B/L/U/D` cubemap from a single BGR side-by-side frame.
 
@@ -35,7 +35,7 @@ For all-direction perception, the pipeline emits a cubemap rather than only thre
 
 Field data flow is `X5 raw/encoded stream + host timestamps + GO2 LowState/SportModeState -> one immutable run directory -> SHA-256 manifest`. Raw camera data remains available even if online stitching cannot meet its target frequency.
 
-The ROS raw-image flow is `X5 H.264 -> one CameraSDK owner -> BGR decode -> synchronized left/right ROS Image messages -> direct rosbag2 SQLite + ROS topics -> lossless PNG pairs -> offline multi-view processing`. Direct bag writing avoids Foxy DDS dropping large 11 MB image messages between separate processes; topics remain published for diagnostics and optional consumers.
+The ROS dual-storage flow is `X5 H.264 -> one CameraSDK owner -> BGR decode -> synchronized lossless BMP pairs + JPEG CompressedImage messages -> direct rosbag2 SQLite + ROS topics -> offline multi-view processing`. Raw decoded pixels stay outside rosbag for post-processing, while compressed topics reduce DDS and bag load.
 
 The supported on-robot deployment root is `~/ws_datacollection` on the GO2-mounted Jetson. `scripts/install_jetson.sh` creates an isolated Python 3.8 environment while retaining JetPack's system OpenCV; it does not replace CUDA, JetPack, ROS 2, or robot services.
 The Jetson environment pins the final Python 3.8-compatible NumPy/SciPy/Pillow releases and applies postponed annotation evaluation to py360convert 1.0.4, whose package metadata otherwise excludes Python 3.8.

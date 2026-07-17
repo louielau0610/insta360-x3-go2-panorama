@@ -5,12 +5,21 @@ import tempfile
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
+import cv2
 
 from go2_experiment.recorder import ExperimentRecorder, SyntheticCapture, load_config, write_checksums
 from go2_experiment.telemetry import JsonlWriter, _jsonable
-from x5_ros.common import read_pairs_csv, split_side_by_side, write_pairs_csv
+from x5_ros.common import (
+    RawPairWriter,
+    compressed_message_to_bgr,
+    encode_jpeg,
+    read_pairs_csv,
+    split_side_by_side,
+    write_pairs_csv,
+)
 
 
 class AcquisitionTest(unittest.TestCase):
@@ -26,6 +35,24 @@ class AcquisitionTest(unittest.TestCase):
             path = Path(temporary) / "pairs.csv"
             write_pairs_csv(path, [(123, "fisheye1/123.png", "fisheye2/123.png")])
             self.assertEqual(read_pairs_csv(path)[0]["timestamp_ns"], "123")
+
+    def test_raw_disk_and_compressed_pair_contract(self):
+        left = np.full((24, 24, 3), (20, 80, 140), np.uint8)
+        right = np.full((24, 24, 3), (140, 80, 20), np.uint8)
+        decoded = compressed_message_to_bgr(
+            SimpleNamespace(data=encode_jpeg(left, 85).tobytes())
+        )
+        self.assertEqual(decoded.shape, left.shape)
+        self.assertLess(float(np.abs(decoded.astype(int) - left.astype(int)).mean()), 3)
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "raw"
+            writer = RawPairWriter(output)
+            writer.write_pair(left, right, 456)
+            writer.close()
+            row = read_pairs_csv(output / "pairs.csv")[0]
+            self.assertEqual(row["timestamp_ns"], "456")
+            self.assertTrue(np.array_equal(left, cv2.imread(str(output / row["fisheye1_path"]))))
+            self.assertTrue(np.array_equal(right, cv2.imread(str(output / row["fisheye2_path"]))))
 
     def test_telemetry_serialization_and_writer(self):
         @dataclass

@@ -1,22 +1,22 @@
-# X5 ROS2 Raw Bag Workflow
+# X5 Raw-Disk and Compressed-Rosbag Workflow
 
-## Verified environment and result
+## Data contract
 
-The GO2 Jetson uses ROS2 Foxy, `rclpy`, `sensor_msgs`, CycloneDDS, GStreamer 1.16, JetPack OpenCV 4.2, and rosbag2 SQLite. The final rate/validation run is:
+Each selected X5 preview frame becomes one timestamped pair:
 
-`/home/unitree/ws_datacollection/runs/20260717_141039_x5_rosbag_raw`
+- `raw/fisheye1/<timestamp>.bmp` and `raw/fisheye2/<timestamp>.bmp`: `1920x1920` lossless decoded BGR pixels.
+- `raw/pairs.csv`: exact timestamp and relative path for every completed raw pair.
+- `/fisheye1/image_compressed` and `/fisheye2/image_compressed`: synchronized JPEG `sensor_msgs/msg/CompressedImage` topics.
+- `bag/`: Foxy-compatible rosbag2 SQLite containing the two compressed topics.
+- `x5/`: the original X5 H.264 stream plus camera timestamps, gyro, and exposure sidecars.
 
-- Camera: Insta360 X5 `v1.11.6`, serial `IAHEA26067UB3R`.
-- Duration represented in bag: 1.981 s.
-- `/fisheye1/image_raw`: 20 messages.
-- `/fisheye2/image_raw`: 20 messages.
-- Pair rate: 10.10 Hz against a 10 Hz target.
-- Image contract: `1920x1920`, `bgr8`, uncompressed CDR.
-- Bag size: 422.4 MiB; approximately 13 GB/minute at this rate.
-- X5 encoded stream and gyro/exposure sidecars were retained beside the bag.
-- All run files passed `sha256sum -c SHA256SUMS`.
-- The separate end-to-end run `20260717_140725_x5_rosbag_raw` replayed and exported 29/29 exact pairs with zero unmatched timestamps.
-- Two of those exported pairs completed panorama, six-face cubemap, and 300° post-processing.
+JPEG quality defaults to 85 and only affects ROS/bag data. It never changes the raw BMP files.
+
+## Storage budget
+
+At 10 paired frames/s, direct-disk raw BGR requires about 13.3 GB/minute. Plan on 15 GB/minute with filesystem and run-metadata headroom. JPEG rosbag size varies with quality, motion, texture, and noise and must be measured on a representative run before planning long captures.
+
+The recorder requires 1.5 times the estimated raw payload to be free before starting. Prefer short independent bags and retain sufficient capacity for clean shutdown and checksum verification.
 
 ## Record
 
@@ -24,13 +24,29 @@ The GO2 Jetson uses ROS2 Foxy, `rclpy`, `sensor_msgs`, CycloneDDS, GStreamer 1.1
 ssh unitree@10.40.8.222
 cd ~/ws_datacollection
 
-# 10 seconds at a target 10 paired frames/s: expect about 2.2 GB raw payload.
+# 10 seconds, 10 paired frames/s, JPEG quality 85.
 bash scripts/record_rosbag_raw.sh 10 10
+
+# Optional lower bag bitrate.
+JPEG_QUALITY=75 bash scripts/record_rosbag_raw.sh 10 10
 ```
 
-At the measured rate, budget approximately 13 GB/minute. With 337 GB free, the mathematical maximum is roughly 25 minutes, but field runs should keep substantial free-space headroom and use shorter independent bags.
+The output directory name ends in `_x5_dual_storage`. A successful run writes `bag_validation.json` with pair rate, raw bytes, compressed bag bytes, and JPEG quality.
 
-## Inspect and export
+## Canonical offline processing
+
+Use the lossless raw directory directly:
+
+```bash
+source .venv-jetson/bin/activate
+x5-ros-postprocess \
+  runs/<run>/raw \
+  runs/<run>_postprocess
+```
+
+This path does not introduce JPEG loss after the X5 H.264 preview decode.
+
+## Rosbag replay/export
 
 ```bash
 source ~/unitree_ros2/setup.sh
@@ -38,25 +54,17 @@ ros2 bag info runs/<run>/bag
 
 PLAY_RATE=0.2 bash scripts/export_rosbag_raw.sh \
   runs/<run>/bag \
-  runs/<run>_export
+  runs/<run>_bag_export
 ```
 
-The export contains `fisheye1/*.png`, `fisheye2/*.png`, `pairs.csv`, and `export_report.json`. PNG is lossless and is used only after bag capture; bag image messages remain uncompressed BGR.
+The exporter decodes bag JPEG messages and creates paired PNG files for inspection. These files are not equivalent to the canonical BMP originals because JPEG is lossy.
 
-## Offline post-process
+## Completion rules
 
-```bash
-source .venv-jetson/bin/activate
-x5-ros-postprocess \
-  runs/<run>_export \
-  runs/<run>_postprocess
-```
-
-Each timestamp directory contains `panorama.jpg`, `cube_F/R/B/L/U/D.jpg`, `view_left/front/right_100.jpg`, and `view_300_contact.jpg`.
-
-## Known constraints
-
-- The live X5 preview is H.264 before ROS decoding; “original” means no additional ROS-layer lossy compression.
-- `CameraInfo` is intentionally absent until a verified ROS calibration is produced.
-- GO2 telemetry remains in the existing subscriber-only JSONL path; this first raw bag contains the two image topics.
-- The direct SQLite writer matches Foxy rosbag2 schema and was verified by `ros2 bag info` and `ros2 bag play`. Always stop normally and verify checksums before power-off.
+- Raw pair count equals both compressed topic counts.
+- Every raw timestamp exactly equals its corresponding bag timestamp.
+- Pair rate is at least 80% of target.
+- `ros2 bag info` accepts the bag.
+- `SHA256SUMS` verifies before the source data is moved or deleted.
+- `CameraInfo` remains absent until verified per-lens ROS calibration exists.
+- GO2 telemetry remains in the subscriber-only acquisition path; no motion commands are published.

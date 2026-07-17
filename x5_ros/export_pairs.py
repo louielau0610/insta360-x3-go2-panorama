@@ -8,9 +8,9 @@ from pathlib import Path
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage
 
-from .common import image_message_to_bgr, write_lossless_png, write_pairs_csv
+from .common import compressed_message_to_bgr, write_lossless_png, write_pairs_csv
 
 
 class PairExporter(Node):
@@ -32,8 +32,12 @@ class PairExporter(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE,
         )
-        self.create_subscription(Image, "/fisheye1/image_raw", lambda msg: self._receive(0, msg), qos)
-        self.create_subscription(Image, "/fisheye2/image_raw", lambda msg: self._receive(1, msg), qos)
+        self.create_subscription(
+            CompressedImage, "/fisheye1/image_compressed", lambda msg: self._receive(0, msg), qos
+        )
+        self.create_subscription(
+            CompressedImage, "/fisheye2/image_compressed", lambda msg: self._receive(1, msg), qos
+        )
 
     def _receive(self, side, message):
         self.last_message_time = time.monotonic()
@@ -45,8 +49,8 @@ class PairExporter(Node):
             return
         left_name = f"{stamp}.png"
         right_name = f"{stamp}.png"
-        write_lossless_png(self.left_dir / left_name, image_message_to_bgr(pair[0]))
-        write_lossless_png(self.right_dir / right_name, image_message_to_bgr(pair[1]))
+        write_lossless_png(self.left_dir / left_name, compressed_message_to_bgr(pair[0]))
+        write_lossless_png(self.right_dir / right_name, compressed_message_to_bgr(pair[1]))
         self.rows.append((stamp, f"fisheye1/{left_name}", f"fisheye2/{right_name}"))
         del self.pending[stamp]
         while len(self.pending) > 20:
@@ -69,7 +73,7 @@ class PairExporter(Node):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Export synchronized raw fisheye pairs from rosbag playback")
+    parser = argparse.ArgumentParser(description="Decode synchronized compressed fisheye pairs from rosbag")
     parser.add_argument("output", type=Path)
     parser.add_argument("--idle-timeout", type=float, default=3)
     args = parser.parse_args(argv)

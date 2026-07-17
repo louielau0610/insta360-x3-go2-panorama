@@ -23,8 +23,8 @@ QOS_YAML = """- history: 1
   avoid_ros_namespace_conventions: false"""
 
 
-class RawImageBagWriter:
-    """Write paired ROS2 Image messages directly to a Foxy sqlite3 bag."""
+class CompressedImageBagWriter:
+    """Write paired ROS2 CompressedImage messages to a Foxy sqlite3 bag."""
 
     def __init__(self, output_dir, commit_pairs=30):
         self.output_dir = Path(output_dir)
@@ -41,10 +41,10 @@ class RawImageBagWriter:
             "CREATE TABLE messages(id INTEGER PRIMARY KEY,topic_id INTEGER NOT NULL,"
             "timestamp INTEGER NOT NULL,data BLOB NOT NULL)"
         )
-        for topic_id, name in ((1, "/fisheye1/image_raw"), (2, "/fisheye2/image_raw")):
+        for topic_id, name in ((1, "/fisheye1/image_compressed"), (2, "/fisheye2/image_compressed")):
             self.connection.execute(
                 "INSERT INTO topics VALUES(?,?,?,?,?)",
-                (topic_id, name, "sensor_msgs/msg/Image", "cdr", QOS_YAML),
+                (topic_id, name, "sensor_msgs/msg/CompressedImage", "cdr", QOS_YAML),
             )
         self.connection.commit()
         self.commit_pairs = commit_pairs
@@ -86,14 +86,14 @@ class RawImageBagWriter:
   message_count: {self.pairs * 2}
   topics_with_message_count:
     - topic_metadata:
-        name: /fisheye1/image_raw
-        type: sensor_msgs/msg/Image
+        name: /fisheye1/image_compressed
+        type: sensor_msgs/msg/CompressedImage
         serialization_format: cdr
         offered_qos_profiles: ""
       message_count: {self.pairs}
     - topic_metadata:
-        name: /fisheye2/image_raw
-        type: sensor_msgs/msg/Image
+        name: /fisheye2/image_compressed
+        type: sensor_msgs/msg/CompressedImage
         serialization_format: cdr
         offered_qos_profiles: ""
       message_count: {self.pairs}

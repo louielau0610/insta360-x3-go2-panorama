@@ -1,6 +1,6 @@
 # Insta360 X5 × Unitree GO2 360° Data Pipeline
 
-> Synchronized raw dual-fisheye ROS2 capture, recoverable GO2 field recording, and calibration-aware 360° post-processing for Insta360 X5.
+> Lossless dual-fisheye disk capture, compressed ROS2 recording, recoverable GO2 field data, and calibration-aware 360° post-processing for Insta360 X5.
 
 This project turns an Insta360 X5 mounted on a Unitree GO2 into a repeatable data-collection pipeline. It records synchronized lens images and robot telemetry, preserves raw data for offline processing, and produces a `2:1` panorama, six-face cubemap, and a combined 300° left/front/right view.
 
@@ -8,18 +8,18 @@ Robot integration is deliberately read-only: the software subscribes to Unitree 
 
 ## Highlights
 
-- **Synchronized ROS2 images** — publishes `/fisheye1/image_raw` and `/fisheye2/image_raw` with identical timestamps.
-- **Post-processing first** — stores `1920 × 1920` `bgr8` image messages without an additional JPEG compression pass.
-- **Reliable rosbag2 capture** — writes paired CDR messages directly to a Foxy-compatible SQLite bag, avoiding loss of very large images through a second DDS hop.
+- **Synchronized ROS2 images** — publishes JPEG `/fisheye1/image_compressed` and `/fisheye2/image_compressed` messages with identical timestamps.
+- **Post-processing first** — writes both `1920 × 1920` decoded `bgr8` lens images directly to disk as lossless BMP files before bagging.
+- **Compact rosbag2 capture** — stores paired `sensor_msgs/CompressedImage` CDR messages directly in a Foxy-compatible SQLite bag.
 - **GO2 field recorder** — records X5 streams, timestamps, gyro/exposure samples, Unitree state, run metadata, and SHA-256 manifests.
 - **Complete 360° outputs** — returns a panorama and `F/R/B/L/U/D` cubemap, plus left/front/right inspection views.
 - **X5-aware stitching** — uses factory-derived lens geometry, polynomial lookup tables, full rotations, and a temporally smoothed content-aware seam.
 
 ## Verified on the robot
 
-The live X5/GO2 test on 2026-07-17 recorded both image topics at `10.10 Hz`: 20 left frames and 20 right frames over 1.98 seconds, with equal first/last timestamps and verified checksums. A separate replay exported 29/29 exact PNG pairs with zero unmatched timestamps.
+The original live X5/GO2 path was verified at `10.10 Hz` with equal left/right counts and timestamps. After switching to raw-disk/compressed-bag storage, an on-robot replay test sustained `9.78 Hz`: 19 lossless BMP pairs occupied 420.3 MB and the JPEG-quality-85 bag occupied 13.6 MiB over 1.94 seconds. Bag playback exported 19/19 pairs with zero unmatched timestamps. A new live-camera check remains pending because the X5 was not USB-enumerated during the final test attempt.
 
-Raw decoded image payload is approximately `13 GB/minute` at 10 Hz, so choose short independent bags and retain storage headroom.
+Direct-disk raw decoded images require approximately `13.3 GB/minute` at 10 Hz. The JPEG rosbag is much smaller and depends on quality and scene complexity; `JPEG_QUALITY=85` is the default.
 
 ![300-degree left/front/right evaluation](docs/artifacts/motion_pilot_20260717_125935/evaluation_300/view_300_contact.jpg)
 
@@ -34,39 +34,45 @@ Insta360 X5 live H.264 preview
               ▼
      GStreamer BGR decode
               │
-              ├── /fisheye1/image_raw ─┐
-              └── /fisheye2/image_raw ─┴── rosbag2 SQLite
-                                                │
-                                                ▼
-                                      lossless paired PNG export
+              ├── lossless BMP pairs + pairs.csv
+              │
+              └── JPEG encode
+                       ├── /fisheye1/image_compressed ─┐
+                       └── /fisheye2/image_compressed ─┴── rosbag2 SQLite
+                                                                │
+                                                                ▼
+                                                     decoded paired PNG export
                                                 │
                    ┌────────────────────────────┼──────────────────────┐
                    ▼                            ▼                      ▼
              2:1 panorama             F/R/B/L/U/D cubemap     300° inspection view
 ```
 
-The ROS messages contain decoded pixels from the X5 live-preview stream. The ROS layer does not apply JPEG or another lossy re-encode. This is not the same as a sensor-native DNG capture because the camera preview arrives as H.264.
+The direct-disk BMP files contain the decoded pixels without another lossy encoding step. ROS messages and rosbag use JPEG to reduce transport and bag size. Neither output is sensor-native DNG because the camera preview arrives as H.264.
 
-## Quick start: raw ROS2 bag on GO2
+## Quick start: raw disk plus compressed ROS2 bag
 
 The supported deployment directory on the GO2-mounted computer is `~/ws_datacollection`.
 
 ```bash
 cd ~/ws_datacollection
 
-# Record for 10 seconds at a target 10 synchronized pairs per second.
+# Record raw BMP pairs plus a compressed bag for 10 seconds at 10 Hz.
 bash scripts/record_rosbag_raw.sh 10 10
 
-# Inspect and losslessly export a completed run.
+# Override JPEG quality when required (1-100, default 85).
+JPEG_QUALITY=80 bash scripts/record_rosbag_raw.sh 10 10
+
+# Inspect and decode the compressed bag for ROS-side review.
 ros2 bag info runs/<run>/bag
 bash scripts/export_rosbag_raw.sh runs/<run>/bag runs/<run>_export
 
-# Generate panorama, cubemap and 300° products.
+# Generate canonical products directly from lossless BMP originals.
 source .venv-jetson/bin/activate
-x5-ros-postprocess runs/<run>_export runs/<run>_postprocess
+x5-ros-postprocess runs/<run>/raw runs/<run>_postprocess
 ```
 
-Every completed capture validates equal topic counts, matching timestamp bounds, at least 80% of the target frame rate, readable rosbag metadata, and SHA-256 checksums. See the [raw rosbag guide](docs/rosbag_raw_pipeline.md) for storage planning, output layout, and failure rules.
+Every completed capture validates exact timestamp equality between raw files and both compressed topics, equal counts, at least 80% of the target frame rate, readable rosbag metadata, and SHA-256 checksums. See the [dual-storage guide](docs/rosbag_raw_pipeline.md) for storage planning, output layout, and failure rules.
 
 ## Field acquisition with GO2 telemetry
 
@@ -120,7 +126,8 @@ For separate images, call `pipeline.process(left_bgr, right_bgr)`. All inputs an
 | --- | --- | --- |
 | Panorama | `1280 × 640` BGR | Recording, visualization, panorama processing |
 | Cubemap | Six `512 × 512` BGR faces | Complete all-direction perception |
-| ROS lens topics | Two `1920 × 1920` `bgr8` images | Lossless post-processing input after preview decode |
+| Direct-disk lens images | Two `1920 × 1920` BGR BMP files | Lossless post-processing input after preview decode |
+| ROS lens topics | Two JPEG `CompressedImage` messages | Lower-bandwidth transport and rosbag replay |
 | JPEG payloads | Optional | Transmission or report artifacts only |
 
 Cubemap face order is always `F/R/B/L/U/D`. Neither the panorama nor cubemap infers metric depth.
@@ -149,7 +156,7 @@ pip install rawpy
 python tools/validate_x5_samples.py /path/to/dngs /path/to/output
 ```
 
-Generated bags, encoded camera streams, validation JPEGs, and runtime reports belong under ignored `runs/` or another external output directory. Only small, intentional documentation artifacts are kept in the repository.
+Generated raw BMP pairs, bags, encoded camera streams, validation images, and runtime reports belong under ignored `runs/` or another external output directory. Only small, intentional documentation artifacts are kept in the repository.
 
 ## Repository layout
 
